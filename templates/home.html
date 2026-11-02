@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block nav %}<a href="{{ url_for('admin') }}" style="opacity:.8">Admin</a>{% endblock %}
+{% block body %}
+<h1>{{ title }}</h1>
+{% if instructions %}<p class="muted" style="white-space:pre-wrap">{{ instructions }}</p>{% endif %}
+
+<div class="grid2">
+  <div class="card">
+    <h2>Get your question paper</h2>
+    {% if not is_open %}
+      <p class="muted">The exam is not open yet. Please wait for your invigilator.</p>
+    {% elif logged_in %}
+      <p>You are already signed in.</p>
+      <a class="btn" href="{{ url_for('paper') }}">Open my paper</a>
+    {% else %}
+      <form method="post" action="{{ url_for('login') }}" autocomplete="off">
+        {{ csrf_field() }}
+        <label for="reg">Registration number</label>
+        <input id="reg" type="text" name="reg_no" required autofocus>
+        <label for="pin">PIN</label>
+        <input id="pin" type="password" name="pin" required>
+        <p><button type="submit">Show my questions</button></p>
+      </form>
+      <p class="muted">Your questions appear only after you enter your registration number and the exam PIN.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Datasets</h2>
+    {% if datasets %}
+      <table>
+        {% for d in datasets %}
+        <tr>
+          <td><strong>{{ d.title }}</strong>
+            {% if d.description %}<div class="muted">{{ d.description }}</div>{% endif %}
+            <div class="muted">{{ d.orig_name }} · {{ d.size|filesize }}</div></td>
+          <td style="width:1%;white-space:nowrap"><a class="btn small" href="{{ url_for('dataset_download', did=d.id) }}">Download</a></td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p class="muted">No datasets uploaded yet.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

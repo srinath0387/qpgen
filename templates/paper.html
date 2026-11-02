@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Question paper - {{ reg }}{% endblock %}
+{% block nav %}
+<form class="inline" method="post" action="{{ url_for('logout') }}">{{ csrf_field() }}
+  <button class="ghost small" type="submit">Sign out</button></form>
+{% endblock %}
+{% block body %}
+<div class="card">
+  <h1>{{ title }}</h1>
+  <p class="muted">Registration number: <strong>{{ reg }}</strong>{% if name %} · {{ name }}{% endif %}</p>
+
+  {% for slot, q in items %}
+    <div class="q">
+      <span class="tag">Q{{ slot.label }}</span>
+      {% if q %}<div class="qtext">{{ q.text }}</div>
+      {% else %}<div class="muted">No question is available for this part yet. Tell your invigilator.</div>{% endif %}
+    </div>
+  {% endfor %}
+
+  <p class="noprint"><button class="ghost" onclick="window.print()">Print</button></p>
+</div>
+
+<div class="card noprint" id="uploads">
+  <h2>Upload your output snapshots</h2>
+  {% if submit_open %}
+  <p class="muted">When you finish, upload screenshots of your code and output for each part. PNG, JPG, GIF, WEBP or PDF, up to 10 MB each and 15 files per part. You can remove a file and upload again until uploads are closed.</p>
+  {% else %}
+  <p class="muted">Uploads are closed.</p>
+  {% endif %}
+  {% for slot, q in items %}
+    <div class="q">
+      <span class="tag">Q{{ slot.label }}</span>
+      {% for s in subs.get(slot.id, []) %}
+        <div style="display:flex;gap:12px;align-items:center;margin:8px 0">
+          {% if is_image(s.orig_name) %}
+            <a href="{{ url_for('submission_file', subid=s.id) }}" target="_blank"><img src="{{ url_for('submission_file', subid=s.id) }}" alt="" style="height:64px;border:1px solid var(--line);border-radius:6px"></a>
+          {% endif %}
+          <div style="flex:1"><a href="{{ url_for('submission_file', subid=s.id) }}" target="_blank">{{ s.orig_name }}</a>
+            <div class="muted">{{ s.size|filesize }} · uploaded {{ s.ts }}</div></div>
+          {% if submit_open %}
+          <form class="inline" method="post" action="{{ url_for('submission_delete', subid=s.id) }}">
+            {{ csrf_field() }}<button class="danger small" type="submit">Remove</button></form>
+          {% endif %}
+        </div>
+      {% else %}<div class="muted">Nothing uploaded yet.</div>{% endfor %}
+      {% if submit_open %}
+      <form method="post" action="{{ url_for('submit') }}" enctype="multipart/form-data" style="margin-top:8px">
+        {{ csrf_field() }}<input type="hidden" name="slot_id" value="{{ slot.id }}">
+        <div class="row" style="align-items:center">
+          <input type="file" name="files" multiple required accept="image/png,image/jpeg,image/gif,image/webp,application/pdf">
+          <div style="flex:0 0 auto"><button class="small" type="submit">Upload</button></div>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+
+{% if datasets %}
+<div class="card noprint">
+  <h2>Datasets</h2>
+  <table>
+    {% for d in datasets %}
+    <tr>
+      <td><strong>{{ d.title }}</strong>
+        {% if d.description %}<div class="muted">{{ d.description }}</div>{% endif %}
+        <div class="muted">{{ d.orig_name }} · {{ d.size|filesize }}</div></td>
+      <td style="width:1%;white-space:nowrap"><a class="btn small" href="{{ url_for('dataset_download', did=d.id) }}">Download</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+{% endblock %}

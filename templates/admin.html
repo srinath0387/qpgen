@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+{% block nav %}
+<form class="inline" method="post" action="{{ url_for('admin_logout') }}">{{ csrf_field() }}
+  <button class="ghost small" type="submit">Admin sign out</button></form>
+{% endblock %}
+{% block body %}
+<h1>Admin panel</h1>
+
+<!-- ============ Settings ============ -->
+<div class="card">
+  <h2>1. Exam settings</h2>
+  <form method="post" action="{{ url_for('admin_settings') }}">
+    {{ csrf_field() }}
+    <div class="row">
+      <div><label>Exam title</label><input type="text" name="title" value="{{ s_title }}"></div>
+      <div><label>PIN (same for everyone)</label><input type="text" name="pin" value="{{ s_pin }}" required></div>
+    </div>
+    <label>Instructions shown on the home page</label>
+    <textarea name="instructions">{{ s_instr }}</textarea>
+    <label style="font-weight:500"><input type="checkbox" name="open" {{ 'checked' if s_open }}> Exam is open (students can log in)</label>
+    <label style="font-weight:500"><input type="checkbox" name="submit_open" {{ 'checked' if submit_open }}> Accept output snapshot uploads</label>
+    <p><button type="submit">Save settings</button></p>
+  </form>
+</div>
+
+<!-- ============ Slots ============ -->
+<div class="card">
+  <h2>2. Question slots (1A, 1B, 2A, 2B ...)</h2>
+  <p class="muted">Each student gets one question from every slot. Add questions to a slot to form its pool.</p>
+  <div class="grid2">
+    <form method="post" action="{{ url_for('slot_generate') }}">
+      {{ csrf_field() }}
+      <label>Quick generate</label>
+      <div class="row">
+        <input type="number" name="n_questions" value="2" min="1" max="20" title="Main questions">
+        <input type="number" name="n_parts" value="2" min="1" max="8" title="Parts per question">
+      </div>
+      <p class="muted">Main questions × parts, e.g. 2 × 2 gives 1A, 1B, 2A, 2B (existing ones are kept).</p>
+      <button type="submit" class="ghost">Generate</button>
+    </form>
+    <form method="post" action="{{ url_for('slot_add') }}">
+      {{ csrf_field() }}
+      <label>Add a single slot</label>
+      <input type="text" name="label" placeholder="e.g. 3A">
+      <p><button type="submit" class="ghost">Add slot</button></p>
+    </form>
+  </div>
+  <p>
+    {% for s in slots %}
+      <span class="badge" style="font-size:.9rem;background:#e7ecff;color:#2f49b0">{{ s.label }}</span>
+    {% else %}<span class="muted">No slots yet.</span>{% endfor %}
+  </p>
+</div>
+
+<!-- ============ Questions ============ -->
+<div class="card">
+  <h2>3. Questions</h2>
+  <form method="post" action="{{ url_for('question_add') }}">
+    {{ csrf_field() }}
+    <div class="row">
+      <div style="flex:0 0 160px"><label>Slot</label>
+        <select name="slot_id" required>
+          {% for s in slots %}<option value="{{ s.id }}">{{ s.label }}</option>{% endfor %}
+        </select></div>
+    </div>
+    <label>Question text <span class="muted">(to add several at once, put a line containing only --- between them)</span></label>
+    <textarea name="text" required></textarea>
+    <p><button type="submit">Add question(s)</button></p>
+  </form>
+
+  {% for s in slots %}
+    <h3>Slot {{ s.label }} <span class="muted">({{ questions[s.id]|length }} question{{ '' if questions[s.id]|length == 1 else 's' }})</span>
+      <form class="inline" method="post" action="{{ url_for('slot_delete', sid=s.id) }}"
+            onsubmit="return confirm('Delete slot {{ s.label }} and all its questions?')">
+        {{ csrf_field() }}<button class="danger small" type="submit">Delete slot</button></form></h3>
+    {% for q in questions[s.id] %}
+      <details style="margin:6px 0">
+        <summary>{{ labels[q.id] }} — {{ q.text[:90] }}{{ '…' if q.text|length > 90 }}</summary>
+        <form method="post" action="{{ url_for('question_update', qid=q.id) }}">
+          {{ csrf_field() }}
+          <textarea name="text">{{ q.text }}</textarea>
+          <button class="small" type="submit">Save</button>
+        </form>
+        <form method="post" action="{{ url_for('question_delete', qid=q.id) }}" style="margin-top:6px"
+              onsubmit="return confirm('Delete this question?')">
+          {{ csrf_field() }}<button class="danger small" type="submit">Delete</button></form>
+      </details>
+    {% else %}<p class="muted">No questions yet.</p>{% endfor %}
+  {% endfor %}
+</div>
+
+<!-- ============ Roster & fixed ============ -->
+<div class="grid2">
+<div class="card">
+  <h2>4. Student roster <span class="muted">({{ roster_count }})</span></h2>
+  <p class="muted">Optional. If the roster has students, only those registration numbers can log in. If it is empty, any registration number with the right PIN works.</p>
+  <form method="post" action="{{ url_for('roster_update') }}" enctype="multipart/form-data">
+    {{ csrf_field() }}
+    <input type="hidden" name="action" value="add">
+    <label>Paste lines: reg_no,name</label>
+    <textarea name="data" placeholder="21A91A0501,Anil Kumar&#10;21A91A0502,Bhavya"></textarea>
+    <label>or upload a CSV</label>
+    <input type="file" name="file" accept=".csv,.txt">
+    <p><button type="submit">Add to roster</button></p>
+  </form>
+  {% if roster_count %}
+  <form method="post" action="{{ url_for('roster_update') }}" onsubmit="return confirm('Clear the whole roster?')">
+    {{ csrf_field() }}<input type="hidden" name="action" value="clear">
+    <button class="danger small" type="submit">Clear roster</button></form>
+  <p class="muted">First entries: {% for r in roster_preview %}{{ r.reg_no }}{{ ', ' if not loop.last }}{% endfor %}{{ ' …' if roster_count > 15 }}</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>5. Fixed questions for specific students</h2>
+  <p class="muted">Pick a question and list the registration numbers that must receive it. Everyone else gets a random one from that slot.</p>
+  <form method="post" action="{{ url_for('fixed_add') }}">
+    {{ csrf_field() }}
+    <label>Question</label>
+    <select name="question_id" required>
+      {% for s in slots %}{% for q in questions[s.id] %}
+        <option value="{{ q.id }}">{{ labels[q.id] }} — {{ q.text[:60] }}</option>
+      {% endfor %}{% endfor %}
+    </select>
+    <label>Registration numbers (space or comma separated)</label>
+    <textarea name="regs" style="min-height:60px" required></textarea>
+    <p><button type="submit">Assign</button></p>
+  </form>
+  {% if fixed %}
+  <table>
+    <tr><th>Reg no</th><th>Slot</th><th>Question</th><th></th></tr>
+    {% for f in fixed %}
+    <tr><td>{{ f.reg_no }}</td><td>{{ slot_label[f.slot_id] }}</td><td>{{ labels[f.question_id] }}</td>
+      <td><form class="inline" method="post" action="{{ url_for('fixed_delete') }}">
+        {{ csrf_field() }}<input type="hidden" name="reg_no" value="{{ f.reg_no }}"><input type="hidden" name="slot_id" value="{{ f.slot_id }}">
+        <button class="danger small" type="submit">Remove</button></form></td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+</div>
+
+<!-- ============ Datasets ============ -->
+<div class="card">
+  <h2>6. Datasets (shown to everyone on the home page)</h2>
+  <form method="post" action="{{ url_for('dataset_upload') }}" enctype="multipart/form-data">
+    {{ csrf_field() }}
+    <div class="row">
+      <div><label>Title</label><input type="text" name="title" placeholder="e.g. Housing prices"></div>
+      <div><label>File</label><input type="file" name="file" required></div>
+    </div>
+    <label>Description (optional)</label>
+    <input type="text" name="description">
+    <p><button type="submit">Upload dataset</button></p>
+  </form>
+  {% if datasets %}
+  <table>
+    {% for d in datasets %}
+    <tr><td><strong>{{ d.title }}</strong><div class="muted">{{ d.orig_name }} · {{ d.size|filesize }}</div></td>
+      <td style="width:1%"><form method="post" action="{{ url_for('dataset_delete', did=d.id) }}" onsubmit="return confirm('Remove this dataset?')">
+        {{ csrf_field() }}<button class="danger small" type="submit">Remove</button></form></td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+<!-- ============ Assignments ============ -->
+<div class="card">
+  <h2>7. Who got what <span class="muted">({{ assign|length }} student{{ '' if assign|length == 1 else 's' }} logged in)</span></h2>
+  <p>
+    <a class="btn ghost small" href="{{ url_for('assignments_csv') }}">Download CSV</a>
+  </p>
+  <div class="row" style="align-items:end">
+    <form method="post" action="{{ url_for('assignments_reset') }}" onsubmit="return confirm('Reset this student?')">
+      {{ csrf_field() }}
+      <label>Reset one student (reg no)</label>
+      <input type="text" name="reg_no" required>
+      <p><button class="ghost small" type="submit">Reset</button></p>
+    </form>
+    <form method="post" action="{{ url_for('assignments_reset') }}" onsubmit="return confirm('Clear ALL random assignments? Students will be re-drawn.')">
+      {{ csrf_field() }}
+      <p><button class="danger small" type="submit">Reset everyone</button></p>
+    </form>
+  </div>
+  {% if assign %}
+  <table>
+    <tr><th>Reg no</th>{% for s in slots %}<th>{{ s.label }}</th>{% endfor %}</tr>
+    {% for reg, m in assign.items() %}
+    <tr><td>{{ reg }}</td>
+      {% for s in slots %}<td>{{ labels.get(m.get(s.id), '—') }}{% if (reg, s.id) in fixed_set %} <span class="badge">fixed</span>{% endif %}</td>{% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+<!-- ============ Submissions ============ -->
+<div class="card">
+  <h2>8. Output snapshots <span class="muted">({{ subs|length }} student{{ '' if subs|length == 1 else 's' }} uploaded)</span></h2>
+  {% if subs %}
+  <p><a class="btn ghost small" href="{{ url_for('submissions_zip') }}">Download all as ZIP</a>
+    <span class="muted">Folders are named by registration number.</span></p>
+  {% for reg, files in subs.items() %}
+    <details style="margin:6px 0">
+      <summary>{{ reg }} — {{ files|length }} file{{ '' if files|length == 1 else 's' }}</summary>
+      <p><a class="btn ghost small" href="{{ url_for('submissions_zip', reg=reg) }}">Download this student's ZIP</a></p>
+      <table>
+        {% for s in files %}
+        <tr>
+          <td style="width:90px">{% if is_image(s.orig_name) %}<a href="{{ url_for('admin_submission_file', subid=s.id) }}" target="_blank"><img src="{{ url_for('admin_submission_file', subid=s.id) }}" alt="" style="height:48px;border:1px solid var(--line);border-radius:4px"></a>{% endif %}</td>
+          <td><strong>{{ slot_label[s.slot_id] }}</strong> · <a href="{{ url_for('admin_submission_file', subid=s.id) }}" target="_blank">{{ s.orig_name }}</a>
+            <div class="muted">{{ s.size|filesize }} · {{ s.ts }} IST</div></td>
+          <td style="width:1%"><form method="post" action="{{ url_for('admin_submission_delete', subid=s.id) }}" onsubmit="return confirm('Remove this file?')">
+            {{ csrf_field() }}<button class="danger small" type="submit">Remove</button></form></td>
+        </tr>
+        {% endfor %}
+      </table>
+    </details>
+  {% endfor %}
+  {% else %}<p class="muted">Nothing uploaded yet.</p>{% endif %}
+</div>
+{% endblock %}

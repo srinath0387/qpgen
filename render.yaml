@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: qpgen
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120
+    disk:
+      name: qpgen-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: ADMIN_PASSWORD
+        generateValue: false
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATA_DIR
+        value: /data

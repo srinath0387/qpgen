@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Admin login{% endblock %}
+{% block body %}
+<div class="card" style="max-width:380px;margin:40px auto">
+  <h2>Admin login</h2>
+  <form method="post">
+    {{ csrf_field() }}
+    <label for="pw">Password</label>
+    <input id="pw" type="password" name="password" required autofocus>
+    <p><button type="submit">Sign in</button></p>
+  </form>
+</div>
+{% endblock %}
