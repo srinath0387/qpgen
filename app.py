@@ -7,6 +7,7 @@ import csv
 import io
 import os
 import random
+import re
 import secrets
 import sqlite3
 import time
@@ -130,6 +131,54 @@ def set_setting(key, value):
     db.commit()
 
 
+def parse_bulk_questions(text):
+    """
+    Parses bulk text containing question sets.
+    Supports formats like:
+      Set-1 / SET 1 / Set A / [Set 1] / === Set 1 ===
+      followed by the questions (e.g. 1a, 1b...).
+    Or splits by '---' or '===' if no set headers are present.
+    """
+    lines = text.strip().splitlines()
+    sets = []
+    current_label = None
+    current_content = []
+
+    set_header_pattern = re.compile(
+        r'^\s*(?:===+|---+)?\s*\[?\s*(?:set|slot)\s*[-_:\s]\s*([0-9a-zA-Z]+)\s*\]?\s*:?\s*(?:===+|---+)?\s*$',
+        re.IGNORECASE
+    )
+
+    has_headers = any(set_header_pattern.match(l) for l in lines)
+
+    if has_headers:
+        for line in lines:
+            m = set_header_pattern.match(line)
+            if m:
+                if current_label and current_content:
+                    qtext = "\n".join(current_content).strip()
+                    if qtext:
+                        sets.append((current_label, qtext))
+                    current_content = []
+                set_num = m.group(1).upper()
+                current_label = f"Set {set_num}"
+            else:
+                if current_label is not None:
+                    current_content.append(line)
+        if current_label and current_content:
+            qtext = "\n".join(current_content).strip()
+            if qtext:
+                sets.append((current_label, qtext))
+    else:
+        chunks = re.split(r'\n\s*(?:---+|===+)\s*\n', text)
+        for i, chunk in enumerate(chunks, 1):
+            chunk = chunk.strip()
+            if chunk:
+                sets.append((f"Set {i}", chunk))
+
+    return sets
+
+
 def init_db():
     db = sqlite3.connect(DB_PATH)
     db.executescript(SCHEMA)
@@ -138,10 +187,34 @@ def init_db():
         pin = str(rng.randint(100000, 999999))
         db.executemany("INSERT INTO settings VALUES(?,?)", [
             ("pin", pin), ("title", "ML Internal Lab Exam"), ("open", "1"),
+            ("assignment_mode", "one_set"),
             ("instructions", "Download the dataset(s) from this page if your question needs one.")])
-        for i, label in enumerate(["1A", "1B", "2A", "2B"]):
+        for i, label in enumerate(["Set 1", "Set 2", "Set 3", "Set 4"]):
             db.execute("INSERT INTO slots(label, position) VALUES(?,?)", (label, i))
         print(f"\n*** First run: exam PIN is {pin} (change it in the admin page) ***")
+
+    # Auto-restore questions if database has no questions but a backup file exists
+    backup_candidates = [
+        os.path.join(DATA_DIR, "questions_backup.txt"),
+        os.path.join(BASE, "default_questions.txt")
+    ]
+    for b_path in backup_candidates:
+        if os.path.exists(b_path) and db.execute("SELECT COUNT(*) FROM questions").fetchone()[0] == 0:
+            try:
+                with open(b_path, "r", encoding="utf-8") as bf:
+                    content = bf.read()
+                sets = parse_bulk_questions(content)
+                if sets:
+                    db.execute("DELETE FROM slots")
+                    for s_pos, (label, qtext) in enumerate(sets):
+                        db.execute("INSERT INTO slots(label, position) VALUES(?,?)", (label, s_pos))
+                        sid = db.execute("SELECT id FROM slots WHERE label=?", (label,)).fetchone()[0]
+                        db.execute("INSERT INTO questions(slot_id, text) VALUES(?,?)", (sid, qtext))
+                    db.commit()
+                    print(f"Auto-restored {len(sets)} question sets from {b_path}")
+            except Exception as e:
+                print(f"Auto-restore failed: {e}")
+
     db.commit()
     db.close()
 
@@ -663,6 +736,85 @@ def question_delete(qid):
     db.commit()
     flash("Question deleted. Students who had it will get a fresh random one on next load.", "ok")
     return back()
+
+
+@app.route("/admin/questions/bulk", methods=["POST"])
+@admin_required
+def questions_bulk_upload():
+    db = get_db()
+    text = ""
+    f = request.files.get("file")
+    if f and f.filename:
+        try:
+            text = f.read().decode("utf-8", errors="ignore")
+        except Exception as e:
+            flash(f"Failed to read uploaded file: {e}", "error")
+            return back()
+    if not text.strip():
+        text = request.form.get("bulk_text", "")
+
+    text = text.strip()
+    if not text:
+        flash("Please paste question text or upload a text file.", "error")
+        return back()
+
+    sets = parse_bulk_questions(text)
+    if not sets:
+        flash("Could not parse any question sets. Check format (e.g. Set-1 followed by questions).", "error")
+        return back()
+
+    replace = bool(request.form.get("replace"))
+    if replace:
+        db.execute("DELETE FROM assignments")
+        db.execute("DELETE FROM fixed")
+        db.execute("DELETE FROM questions")
+        db.execute("DELETE FROM slots")
+
+    added_sets = 0
+    added_questions = 0
+
+    for label, qtext in sets:
+        slot = db.execute("SELECT id FROM slots WHERE label=?", (label,)).fetchone()
+        if not slot:
+            pos = db.execute("SELECT COALESCE(MAX(position),-1)+1 FROM slots").fetchone()[0]
+            db.execute("INSERT INTO slots(label, position) VALUES(?,?)", (label, pos))
+            sid = db.execute("SELECT id FROM slots WHERE label=?", (label,)).fetchone()["id"]
+            added_sets += 1
+        else:
+            sid = slot["id"]
+
+        db.execute("INSERT INTO questions(slot_id, text) VALUES(?,?)", (sid, qtext))
+        added_questions += 1
+
+    # Save backup to DATA_DIR so it can survive restarts
+    try:
+        backup_path = os.path.join(DATA_DIR, "questions_backup.txt")
+        with open(backup_path, "w", encoding="utf-8") as bf:
+            bf.write(text)
+    except Exception:
+        pass
+
+    db.commit()
+    flash(f"Successfully uploaded {added_questions} question(s) across {len(sets)} set(s)! Students will be assigned randomly.", "ok")
+    return back()
+
+
+@app.route("/admin/questions/export")
+@admin_required
+def questions_export():
+    db = get_db()
+    slots = get_slots(db)
+    lines = []
+    for s in slots:
+        qs = db.execute("SELECT text FROM questions WHERE slot_id=? ORDER BY id", (s["id"],)).fetchall()
+        for q in qs:
+            lines.append(f"{s['label']}\n{q['text']}\n")
+    output = "\n".join(lines)
+    return Response(
+        output,
+        mimetype="text/plain",
+        headers={"Content-Disposition": "attachment;filename=questions_backup.txt"}
+    )
 
 
 @app.route("/admin/roster", methods=["POST"])

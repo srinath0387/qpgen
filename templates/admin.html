@@ -69,9 +69,48 @@
   </p>
 </div>
 
+<!-- ============ Bulk Upload Questions ============ -->
+<div class="card" style="border:2px solid var(--brand);background:#fafcff">
+  <h2>⚡ Bulk Upload Question Sets</h2>
+  <p class="muted">
+    Upload or paste all your question sets in one go! Each student logging in will be assigned to <strong>any one set randomly & evenly</strong>.
+  </p>
+  <form method="post" action="{{ url_for('questions_bulk_upload') }}" enctype="multipart/form-data">
+    {{ csrf_field() }}
+    <label>Paste question sets:</label>
+    <textarea name="bulk_text" style="min-height:180px;font-family:monospace;font-size:.9rem" placeholder="Set-1
+1a. Write a python program for Linear Regression
+1b. Write a python program for Logistic Regression
+
+Set-2
+1a. Write a python program for Naive Bayes Classifier
+1b. Write a python program for K-Means Clustering
+
+Set-3
+1a. Write a python program for Decision Tree
+1b. Write a python program for Support Vector Machine"></textarea>
+
+    <div style="margin:12px 0">
+      <label>Or upload a text file (.txt, .md):</label>
+      <input type="file" name="file" accept=".txt,.md,.csv">
+    </div>
+
+    <div style="margin:12px 0">
+      <label style="font-weight:500;cursor:pointer">
+        <input type="checkbox" name="replace" value="1" checked> Clear previous sets and questions before uploading
+      </label>
+    </div>
+
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <button type="submit">Upload All Question Sets</button>
+      <a class="btn ghost small" href="{{ url_for('questions_export') }}">Download Current Questions Backup (.txt)</a>
+    </div>
+  </form>
+</div>
+
 <!-- ============ Questions ============ -->
 <div class="card">
-  <h2>3. Questions</h2>
+  <h2>3. Questions & Sets Overview</h2>
   <form method="post" action="{{ url_for('question_add') }}">
     {{ csrf_field() }}
     <div class="row">
