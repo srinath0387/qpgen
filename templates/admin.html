@@ -18,6 +18,19 @@
     </div>
     <label>Instructions shown on the home page</label>
     <textarea name="instructions">{{ s_instr }}</textarea>
+
+    <label style="margin-top:14px;font-weight:600">Question distribution mode</label>
+    <div style="background:#f8f9fc;padding:12px;border:1px solid var(--line);border-radius:8px;margin-bottom:14px">
+      <label style="font-weight:normal;display:block;margin-bottom:8px;cursor:pointer">
+        <input type="radio" name="assignment_mode" value="one_set" {{ 'checked' if s_mode == 'one_set' }}>
+        <strong>Single Set per student (Recommended)</strong> — each student gets only <em>ONE set</em> (random & evenly distributed across the hall)
+      </label>
+      <label style="font-weight:normal;display:block;cursor:pointer">
+        <input type="radio" name="assignment_mode" value="all_slots" {{ 'checked' if s_mode == 'all_slots' }}>
+        <strong>One question from every slot</strong> — multi-part exam (e.g. 1A + 1B + 2A + 2B)
+      </label>
+    </div>
+
     <label style="font-weight:500"><input type="checkbox" name="open" {{ 'checked' if s_open }}> Exam is open (students can log in)</label>
     <label style="font-weight:500"><input type="checkbox" name="submit_open" {{ 'checked' if submit_open }}> Accept output snapshot uploads</label>
     <p><button type="submit">Save settings</button></p>
@@ -26,30 +39,33 @@
 
 <!-- ============ Slots ============ -->
 <div class="card">
-  <h2>2. Question slots (1A, 1B, 2A, 2B ...)</h2>
-  <p class="muted">Each student gets one question from every slot. Add questions to a slot to form its pool.</p>
+  <h2>2. Question Sets / Slots (Set 1, Set 2, Set 3 ... or 1A, 1B ...)</h2>
+  <p class="muted">In <strong>Single Set mode</strong>, each student is assigned to <strong>any one set</strong>. In multi-part mode, each student gets one question from every slot.</p>
   <div class="grid2">
     <form method="post" action="{{ url_for('slot_generate') }}">
       {{ csrf_field() }}
-      <label>Quick generate</label>
+      <input type="hidden" name="gen_type" value="sets">
+      <label>Quick generate Sets</label>
       <div class="row">
-        <input type="number" name="n_questions" value="2" min="1" max="20" title="Main questions">
-        <input type="number" name="n_parts" value="2" min="1" max="8" title="Parts per question">
+        <input type="number" name="n_sets" value="4" min="1" max="20" title="Number of sets">
+        <button type="submit" class="ghost">Generate Sets</button>
       </div>
-      <p class="muted">Main questions × parts, e.g. 2 × 2 gives 1A, 1B, 2A, 2B (existing ones are kept).</p>
-      <button type="submit" class="ghost">Generate</button>
+      <p class="muted">Creates Set 1, Set 2, Set 3, Set 4...</p>
     </form>
     <form method="post" action="{{ url_for('slot_add') }}">
       {{ csrf_field() }}
-      <label>Add a single slot</label>
-      <input type="text" name="label" placeholder="e.g. 3A">
-      <p><button type="submit" class="ghost">Add slot</button></p>
+      <label>Add a single set / slot</label>
+      <div class="row">
+        <input type="text" name="label" placeholder="e.g. Set 1, Set A, or 3A">
+        <button type="submit" class="ghost">Add</button>
+      </div>
     </form>
   </div>
-  <p>
+  <p style="margin-top:14px">
+    <span class="muted" style="margin-right:8px">Configured:</span>
     {% for s in slots %}
       <span class="badge" style="font-size:.9rem;background:#e7ecff;color:#2f49b0">{{ s.label }}</span>
-    {% else %}<span class="muted">No slots yet.</span>{% endfor %}
+    {% else %}<span class="muted">No sets/slots yet.</span>{% endfor %}
   </p>
 </div>
 

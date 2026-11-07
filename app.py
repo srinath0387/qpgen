@@ -220,9 +220,66 @@ def question_labels(db):
 
 def ensure_assignments(db, reg):
     """Return [(slot, question_row_or_None)] for this student, creating and
-    locking any missing assignment (fixed question first, else random)."""
+    locking any missing assignment (fixed question first, else random).
+    Respects assignment_mode: 'one_set' (default) gives 1 set only, 'all_slots' gives all."""
+    mode = get_setting("assignment_mode", "one_set")
+    slots = get_slots(db)
+    if not slots:
+        return []
+
+    if mode == "one_set":
+        slot_map = {s["id"]: s for s in slots}
+
+        # Check existing assignments for this student
+        existing = db.execute(
+            "SELECT a.slot_id, q.* FROM assignments a "
+            "JOIN questions q ON q.id=a.question_id "
+            "WHERE a.reg_no=? ORDER BY a.slot_id", (reg,)
+        ).fetchall()
+
+        if existing:
+            # If already assigned, return only their assigned set
+            first = existing[0]
+            if first["slot_id"] in slot_map:
+                return [(slot_map[first["slot_id"]], dict(first))]
+            return []
+
+        # Check fixed questions for this student
+        fx = db.execute("SELECT slot_id, question_id FROM fixed WHERE reg_no=?", (reg,)).fetchone()
+        if fx and fx["slot_id"] in slot_map:
+            sid = fx["slot_id"]
+            qid = fx["question_id"]
+        else:
+            # Balanced distribution: pick slot with fewest assignments
+            counts = {s["id"]: 0 for s in slots}
+            for r in db.execute("SELECT slot_id, COUNT(*) as c FROM assignments GROUP BY slot_id").fetchall():
+                if r["slot_id"] in counts:
+                    counts[r["slot_id"]] = r["c"]
+
+            # Prioritize slots that actually have questions added
+            with_q = [s for s in slots if db.execute("SELECT 1 FROM questions WHERE slot_id=?", (s["id"],)).fetchone()]
+            candidates = with_q if with_q else slots
+
+            min_c = min(counts[s["id"]] for s in candidates)
+            best_slots = [s for s in candidates if counts[s["id"]] == min_c]
+            chosen_slot = rng.choice(best_slots)
+            sid = chosen_slot["id"]
+
+            pool = [r["id"] for r in db.execute("SELECT id FROM questions WHERE slot_id=?", (sid,))]
+            qid = rng.choice(pool) if pool else None
+
+        if qid is not None:
+            db.execute("INSERT OR IGNORE INTO assignments(reg_no,slot_id,question_id) VALUES(?,?,?)",
+                       (reg, sid, qid))
+            db.commit()
+
+        chosen_s = slot_map.get(sid)
+        q = db.execute("SELECT * FROM questions WHERE id=?", (qid,)).fetchone() if qid else None
+        return [(chosen_s, q)] if chosen_s else []
+
+    # 'all_slots' mode: student gets one question from every slot
     out = []
-    for s in get_slots(db):
+    for s in slots:
         q = db.execute(
             "SELECT q.* FROM assignments a JOIN questions q ON q.id=a.question_id "
             "WHERE a.reg_no=? AND a.slot_id=?", (reg, s["id"])).fetchone()
@@ -467,7 +524,8 @@ def admin():
         slot_label=slot_label, assign=assign, fixed_set=fixed_set,
         roster_count=roster_count, roster_preview=roster_preview, datasets=datasets,
         s_title=get_setting("title"), s_pin=get_setting("pin"),
-        s_open=get_setting("open") == "1", s_instr=get_setting("instructions"))
+        s_open=get_setting("open") == "1", s_instr=get_setting("instructions"),
+        s_mode=get_setting("assignment_mode", "one_set"))
 
 
 def back():
@@ -486,6 +544,9 @@ def admin_settings():
     set_setting("instructions", request.form.get("instructions", "").strip())
     set_setting("open", "1" if request.form.get("open") else "0")
     set_setting("submit_open", "1" if request.form.get("submit_open") else "0")
+    mode = request.form.get("assignment_mode", "one_set")
+    if mode in ("one_set", "all_slots"):
+        set_setting("assignment_mode", mode)
     flash("Settings saved.", "ok")
     return back()
 
@@ -493,9 +554,10 @@ def admin_settings():
 @app.route("/admin/slots/add", methods=["POST"])
 @admin_required
 def slot_add():
-    label = "".join(request.form.get("label", "").split()).upper()
+    raw = request.form.get("label", "").strip()
+    label = " ".join(raw.split())
     if not label:
-        flash("Enter a slot label like 3A.", "error")
+        flash("Enter a slot/set label like 'Set 1' or '3A'.", "error")
         return back()
     db = get_db()
     pos = db.execute("SELECT COALESCE(MAX(position),-1)+1 FROM slots").fetchone()[0]
@@ -511,13 +573,33 @@ def slot_add():
 @app.route("/admin/slots/generate", methods=["POST"])
 @admin_required
 def slot_generate():
+    gen_type = request.form.get("gen_type", "parts")
+    db = get_db()
+    if gen_type == "sets":
+        try:
+            n_sets = max(1, min(int(request.form.get("n_sets", 4)), 20))
+        except ValueError:
+            flash("Enter a valid number for sets.", "error")
+            return back()
+        added = 0
+        for i in range(1, n_sets + 1):
+            label = f"Set {i}"
+            pos = db.execute("SELECT COALESCE(MAX(position),-1)+1 FROM slots").fetchone()[0]
+            try:
+                db.execute("INSERT INTO slots(label, position) VALUES(?,?)", (label, pos))
+                added += 1
+            except sqlite3.IntegrityError:
+                pass
+        db.commit()
+        flash(f"Added {added} new set(s).", "ok")
+        return back()
+
     try:
         n = max(1, min(int(request.form.get("n_questions", 2)), 20))
         p = max(1, min(int(request.form.get("n_parts", 2)), 8))
     except ValueError:
         flash("Enter whole numbers.", "error")
         return back()
-    db = get_db()
     added = 0
     for i in range(1, n + 1):
         for j in range(p):

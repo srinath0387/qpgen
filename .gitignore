@@ -3,7 +3,7 @@ __pycache__/
 *.pyo
 .env
 .secret_key
-exam.db
+exam.db*
 uploads/
 venv/
 .venv/

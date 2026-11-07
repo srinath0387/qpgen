@@ -11,7 +11,7 @@
 
   {% for slot, q in items %}
     <div class="q">
-      <span class="tag">Q{{ slot.label }}</span>
+      <span class="tag">{% if slot.label.lower().startswith(('set', 'q')) %}{{ slot.label }}{% else %}Q{{ slot.label }}{% endif %}</span>
       {% if q %}<div class="qtext">{{ q.text }}</div>
       {% else %}<div class="muted">No question is available for this part yet. Tell your invigilator.</div>{% endif %}
     </div>
@@ -29,7 +29,7 @@
   {% endif %}
   {% for slot, q in items %}
     <div class="q">
-      <span class="tag">Q{{ slot.label }}</span>
+      <span class="tag">{% if slot.label.lower().startswith(('set', 'q')) %}{{ slot.label }}{% else %}Q{{ slot.label }}{% endif %}</span>
       {% for s in subs.get(slot.id, []) %}
         <div style="display:flex;gap:12px;align-items:center;margin:8px 0">
           {% if is_image(s.orig_name) %}
